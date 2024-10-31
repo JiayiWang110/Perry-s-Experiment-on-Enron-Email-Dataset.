@@ -31,11 +31,12 @@ To run this notebook, the following libraries are required:
 -  `hashlib`
 -  `pytz`
 -  `lifelines `
+-  `re`
 
 
 You can install these dependencies using:
 ```bash
-pip install pandas numpy matplotlib seaborn scikit-learn networkx nltk jupyter hashlib pytz lifelines 
+pip install pandas numpy matplotlib seaborn scikit-learn networkx nltk jupyter hashlib pytz lifelines re
 ```
 
 ## 1. Data Preprocessing According to Zhou's Method
@@ -49,7 +50,7 @@ We use regular expressions to extract the `From`, `To`, `Cc`, and `Bcc` fields f
 # import dataset
 emails_df = pd.read_csv('/...csv')
 emails_df.head(5)
-import re
+
 
 # Extract email entities like From, To, Cc, Bcc from the message text
 def extract_email_entities(message):
@@ -125,6 +126,7 @@ In this step, we extract the dates from the email content, ensure they are in a 
 
 ```python
 from dateutil import parser
+from datetime import datetime
 
 # Extract date from email message
 def extract_date(message):
@@ -143,11 +145,9 @@ emails_df_unique['date'].dropna().head()
 
 min_date = emails_df_unique['date'].min()
 max_date = emails_df_unique['date'].max()
-print(f"date range: {min_date} 到 {max_date}")
+print(f"date range: {min_date} to {max_date}")
 
 emails_df_unique = emails_df_unique.sort_values(by='date')
-
-from datetime import datetime
 
 # Convert the date to UTC format (or set another timezone like 'PST')
 emails_df_unique['date'] = pd.to_datetime(emails_df_unique['date'], errors='coerce')
@@ -190,7 +190,7 @@ to_emails = pd.Series([email for sublist in sampled_emails['To_standardized'] if
 all_employees = pd.concat([from_emails, to_emails]).unique()
 
 unique_employee_count = len(all_employees)
-print(f"在这些邮件中涉及到的独特员工数量为: {unique_employee_count}")
+print(f"the numbers of unique employees: {unique_employee_count}")
 
 # Save the sampled emails to a CSV file
 sampled_emails.to_csv('sampled_emails.csv', index=False)
@@ -198,6 +198,7 @@ sampled_emails.to_csv('sampled_emails.csv', index=False)
 
 ## 2. Reconstructing Perry's Experiment
 ### Step 1: Creating Dynamic Covariates
+Since we don't have Employee's Information file which contains the information of the actors’ genders, departments and seniorities, we can not creat the static covariates.
 
 ```python
 sampled_emails['From_standardized'] = sampled_emails['From_standardized'].apply(lambda x: str(x) if isinstance(x, (list, tuple)) else x)
@@ -211,7 +212,7 @@ sampled_emails['receive'] = sampled_emails.groupby(['To_standardized', 'From_sta
 
 # '2-send'&'2-receive'
 sampled_emails_swap = sampled_emails[['From_standardized', 'To_standardized']].copy()
-sampled_emails_swap.columns = ['To_standardized', 'From_standardized']  # 交换列名以便匹配
+sampled_emails_swap.columns = ['To_standardized', 'From_standardized'] 
 merged_df = pd.merge(sampled_emails, sampled_emails_swap, on=['From_standardized', 'To_standardized'], how='inner')
 send_count = merged_df.groupby(['From_standardized', 'To_standardized']).size().reset_index(name='2_send')
 receive_count = merged_df.groupby(['To_standardized', 'From_standardized']).size().reset_index(name='2_receive')
@@ -238,6 +239,8 @@ In this step, we prepare the data and fit a Cox Proportional Hazards model to st
 
 ```python
 from lifelines import CoxPHFitter
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 sampled_emails['date'] = pd.to_datetime(sampled_emails['date'])
 
@@ -254,9 +257,6 @@ sampled_emails.dropna(inplace=True)
 sampled_emails.fillna(0, inplace=True)
 
 covariates = ['send', 'receive', '2_send', '2_receive', 'sibling', 'cosibling']
-
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 corr_matrix = sampled_emails[covariates].corr().abs()
 
@@ -277,6 +277,8 @@ We use Principal Component Analysis (PCA) to reduce the dimensionality of the co
 ```python
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 # Standardize the data before PCA
 scaler = StandardScaler()
@@ -296,8 +298,6 @@ cph = CoxPHFitter()
 cph.fit(sampled_emails[covariates + ['time', 'event']], duration_col='time', event_col='event')
 
 cph.print_summary()
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 corr_matrix = sampled_emails[covariates].corr().abs()
 
@@ -309,6 +309,9 @@ plt.show()
 ### Step 4: Bootstrap Bias Correction
 In this step, we perform Bootstrap Bias Correction using resampling to estimate the variability of the Cox model parameters.
 ```python
+from sklearn.utils import resample
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from statsmodels.tools import add_constant
 
 sampled_emails['time'] = pd.to_datetime(sampled_emails['time'])
 sampled_emails['time'] = (sampled_emails['time'] - pd.Timestamp("1998-11-13")).dt.total_seconds()
@@ -318,8 +321,6 @@ sampled_emails = sampled_emails.select_dtypes(include=[np.number])
 scaler = StandardScaler()
 scaled_sample = sampled_emails.copy()
 scaled_sample[covariates] = scaler.fit_transform(scaled_sample[covariates])
-
-from sklearn.utils import resample
 
 bootstrap_coefs = []
 
@@ -345,8 +346,6 @@ plt.ylabel("Normalized Residual")
 plt.title("Bootstrap Residuals")
 plt.show()
 
-from statsmodels.stats.outliers_influence import variance_inflation_factor
-from statsmodels.tools import add_constant
 
 X = add_constant(sampled_emails[covariates])
 
@@ -408,6 +407,7 @@ plt.title('Coefficients of Network Effects')
 plt.xlabel('Coefficient Value')
 plt.ylabel('Network Effect')
 plt.show()
+
 # Filter and display significant network effects (p < 0.05)
 significant_effects = coefficients[p_values < 0.05]
 print("Significant Network Effects:")
