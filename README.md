@@ -392,6 +392,7 @@ We evaluate the quality of the fit by examining the coefficients of different co
 # Calculate the coefficients for different covariates
 coefficients = cph.summary['coef']
 print(coefficients)
+
 pca_components = pd.DataFrame(pca.components_, columns=['send', 'receive', '2_send', '2_receive', 'sibling', 'cosibling'])
 print(pca_components)
 coefficients = cph.summary['coef']
